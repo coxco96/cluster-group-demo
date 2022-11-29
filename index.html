@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Austin Traffic Districts</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
+    <link rel="stylesheet" href="libs/Leaflet.markercluster/MarkerCluster.Default.css"> />
+    <link rel="stylesheet" href="libs/Leaflet.markercluster/MarkerCluster.css"> />
+
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            position: absolute;
+            width: 100%;
+            top: 0;
+            bottom: 0;
+        }
+
+        #ui {
+            position: absolute;
+            z-index: 1000;
+            bottom: 18px;
+            right: 18px;
+            padding: 6px 12px;
+            background: rgba(256, 256, 256, .9);
+        }
+
+        #ui ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        #ui li {
+            margin-bottom: 6px;
+        }
+
+        #ui a {
+            text-decoration: none;
+        }
+
+        #ui a:hover {
+            font-weight: bold;
+        }
+
+        .highlight {
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="map"></div>
+    <div id="ui">
+        <h3>Austin City Districts</h3>
+        <h4>(number of traffic signals)</h4>
+        <ul id="legend-list"></ul>
+    </div>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
+    <script src="libs/Leaflet.markercluster/leaflet.markercluster.js"></script>
+    <script>
+        // map options
+        const options = {
+            center: [30.30927, -97.74211],
+            zoom: 10
+        }
+        // instantiate Leaflet map
+        const map = L.map('map', options);
+
+        // add CARTO voyager tiles with no labels
+        // do not use these tiles commercially
+        L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/rastertiles/voyager_nolabels/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+            attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy;<a href="https://carto.com/attribution">CARTO</a>'
+        }).addTo(map);
+
+
+        // use d3 fetch to request data with async requests
+        const districtsData = d3.json('data/austin-districts-counts.json');
+        const colorsData = d3.json('data/vividcolors.json');
+        const trafficData = d3.json('data/austin-traffic-signals.json');
+
+        // use Promise to wait until data is all loaded
+        Promise.all([districtsData, colorsData, trafficData]).then(drawMap).catch(error => console.log(
+            "error drawing map"));
+
+        function drawMap(data) {
+            // pull out separate data arrays and assign to variables
+            const districts = data[0];
+            const colors = data[1];
+            const signals = data[2];
+
+            // store a reference to the HTML list
+            const legendList = $('#legend-list');
+
+            // loop through the features and create a new list item for each feature in the legend
+            for (let i = 1; i <= districts.features.length; i++) {
+                legendList.append('<li class="legend-item" id="district-' + i + '"><a style="color:' + colors.Vivid[10][
+                    i - 1
+                ] + '" href="#">District ' + i + ' (<span></span>)</a></li>');
+            }
+            // create a layerGroup with the geojson data
+            const districtsLayerGroup = L.geoJson(districts, {
+                style: function (feature) {
+                    // use the colors object to style each polygon a unique color
+                    return {
+                        color: colors.Vivid[10][feature.properties.council_di - 1],
+                        fillOpacity: .6
+                    }
+                },
+
+
+                onEachFeature(feature, layer) {
+                    // select each legend list item span and append the total count of signals
+                    $('#district-' + feature.properties.council_di + ' span').append(feature.properties.count);
+
+                    // when mousing over a polygon layer
+                    layer.on('mouseover', function () {
+                        // provide a visual affordance
+                        this.setStyle({
+                            fillOpacity: .8
+                        });
+                        // select the corresponding list item and add the highlight class to make bold
+                        $('#district-' + feature.properties.council_di).addClass('highlight');
+                    });
+                    // when mousing off of a polygon layer
+                    layer.on('mouseout', function () {
+                        this.setStyle({
+                            fillOpacity: .6
+                        });
+                        $('#district-' + feature.properties.council_di).removeClass('highlight');
+                    })
+                    // if polygon is clicked, zoom to that polygon (unfinished)
+                    layer.on('click', function () {
+                        console.log(this.getBounds());
+                        // need to set bounds based on this.getBounds()
+                    })
+                }
+            }).addTo(map);
+
+
+            // select all the list items and on mouseover
+            $('.legend-item').on('mouseover', function () {
+                // extract the specific number from the specific item being moused over
+                var num = this.id.replace('district-', '');
+                // send this number as an argument to the highlightDistrict function
+                highlightDistrict(num);
+            });
+
+            $('.legend-item').on('mouseout', function () {
+                // on legend item mouseout, find the associated polygon and make sure it does not stay highlighted
+                var num = this.id.replace('district-', '');
+                unhighlightDistrict(num);
+            });
+
+            function highlightDistrict(districtNum) {
+                // loop through the district's polygons
+                districtsLayerGroup.eachLayer(function (layer) {
+                    // if the district id matches the one we're mousing over
+                    if (layer.feature.properties.council_di === districtNum) {
+                        // change the layer style
+                        layer.setStyle({
+                            fillOpacity: .8
+                        }).bringToFront();
+                    } else {
+                        layer.setStyle({
+                            fillOpacity: .6
+                        });
+                    }
+                });
+            };
+
+            function unhighlightDistrict(districtNum) {
+                districtsLayerGroup.eachLayer(function (layer) {
+                    // if the district id matches the one we're mousing over
+                    if (layer.feature.properties.council_di === districtNum) {
+                        layer.setStyle({
+                            fillOpacity: .6
+                        });
+                    }
+                })
+            };
+
+            // create new markerClusterGroup
+            const markers = L.markerClusterGroup(); // works bc of the plugin we added to script
+
+            // loop through all our signals features
+            signals.features.forEach(function(feature) {
+                // create a new Leaflet marker for each
+                let coords = feature.geometry.coordinates;
+                let marker = L.marker([coords[1], coords[0]], {
+                    title: "Signal ID: " + feature.properties.SIGNAL_ID // for accessibility
+                }); // note lng/lat, not lat/lng
+
+                // bind a tooltip to the marker
+                marker.bindTooltip("Signal ID: " + feature.properties.SIGNAL_ID);
+
+                // add the marker to the markerClusterGroup
+                markers.addLayer(marker);
+            });
+            // add the markerClusterGroup to the map
+            map.addLayer(markers);
+        }
+    </script>
+</body>
+
+</html>
